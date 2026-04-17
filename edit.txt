@@ -1,0 +1,93 @@
+import streamlit as st
+import pickle
+import Orange
+import numpy as np
+
+# 1. โหลดโมเดล Orange3 ที่เทรนไว้แล้ว
+@st.cache_resource
+def load_model():
+    try:
+        with open("diabetes_model.pkcls", "rb") as f:
+            return pickle.load(f)
+    except FileNotFoundError:
+        return None
+
+model = load_model()
+
+# ส่วนการแสดงผลบนหน้าเว็บ
+st.title("Diabetes Prediction App")
+
+if model is None:
+    st.error("ไม่พบไฟล์โมเดล 'diabetes_model.pkcls' กรุณาตรวจสอบว่าไฟล์อยู่ในโฟลเดอร์เดียวกับสคริปต์นี้")
+    st.stop()
+
+# 2. สร้าง Sidebar Sliders สำหรับรับค่า 8 Continuous Features
+st.sidebar.header("ข้อมูลผู้ป่วย (Input Features)")
+
+def get_user_input():
+    # ค่าเฉลี่ยและช่วงอ้างอิงจากชุดข้อมูล Pima Indians Diabetes
+    pregnancies = st.sidebar.slider("Pregnancies (จำนวนครั้งที่ตั้งครรภ์)", 0, 17, 3)
+    glucose = st.sidebar.slider("Glucose (ระดับน้ำตาล)", 0, 200, 117)
+    blood_pressure = st.sidebar.slider("Blood Pressure (ความดันโลหิต)", 0, 122, 72)
+    skin_thickness = st.sidebar.slider("Skin Thickness (ความหนาของผิวหนัง)", 0, 99, 23)
+    insulin = st.sidebar.slider("Insulin (ระดับอินซูลิน)", 0, 846, 30)
+    bmi = st.sidebar.slider("BMI (ดัชนีมวลกาย)", 0.0, 67.1, 32.0)
+    dpf = st.sidebar.slider("Diabetes Pedigree Function", 0.078, 2.42, 0.372)
+    age = st.sidebar.slider("Age (อายุ)", 21, 81, 29)
+    
+    return [pregnancies, glucose, blood_pressure, skin_thickness, insulin, bmi, dpf, age]
+
+user_data = get_user_input()
+
+# 3. ฟังก์ชันแปลงข้อมูลเป็น Orange.data.Table
+def create_orange_table(input_list):
+    # กำหนดโครงสร้าง Features (X)
+    attributes = [
+        Orange.data.ContinuousVariable("Pregnancies"),
+        Orange.data.ContinuousVariable("Glucose"),
+        Orange.data.ContinuousVariable("BloodPressure"),
+        Orange.data.ContinuousVariable("SkinThickness"),
+        Orange.data.ContinuousVariable("Insulin"),
+        Orange.data.ContinuousVariable("BMI"),
+        Orange.data.ContinuousVariable("DiabetesPedigreeFunction"),
+        Orange.data.ContinuousVariable("Age"),
+    ]
+    
+    # กำหนดโครงสร้าง Target (Y) - สร้างเป็น Dummy เพื่อให้โครงสร้าง Domain สมบูรณ์
+    # หมายเหตุ: ค่าใน values=["0", "1"] ต้องตรงกับที่ตั้งไว้ใน Orange
+    target_variable = Orange.data.DiscreteVariable("Outcome", values=["0", "1"])
+    
+    # สร้าง Domain
+    domain = Orange.data.Domain(attributes, target_variable)
+    
+    # สร้าง Data Table (รวมข้อมูล features + dummy target 1 ค่า)
+    row_with_dummy_target = input_list + [0] 
+    data_table = Orange.data.Table(domain, [row_with_dummy_target])
+    
+    return data_table
+
+# เตรียมข้อมูล
+orange_table = create_orange_table(user_data)
+
+# 4. ปุ่มทำนายผล (Predict)
+if st.button("ทำนายผล (Predict)"):
+    # ทำนายผลด้วยโมเดล
+    # model(orange_table) จะคืนค่าเป็น array ของค่าดัชนีคลาสที่ทำนายได้
+    prediction_index = model(orange_table)[0]
+    
+    # ดึงชื่อคลาส (Label) จาก Domain ของโมเดล
+    prediction_label = model.domain.class_var.values[int(prediction_index)]
+    
+    # แสดงผลลัพธ์
+    st.subheader("ผลการทำนาย:")
+    if prediction_label == "1":
+        st.error(f"⚠️ ผลคือ: {prediction_label} (มีความเสี่ยงเป็นเบาหวาน)")
+    else:
+        st.success(f"✅ ผลคือ: {prediction_label} (ความเสี่ยงต่ำ/ปกติ)")
+
+    # (เพิ่มเติม) แสดงค่าความมั่นใจถ้าโมเดลรองรับ
+    try:
+        probabilities = model(orange_table, model.Probs)[0]
+        st.write(f"ค่าความน่าจะเป็น: {max(probabilities)*100:.2f}%")
+    except:
+        pass
